@@ -1,0 +1,289 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  
+  /* WaZoBiaRide Nigeria Unity Theme */
+  --color-nigeria-green: oklch(0.55 0.25 145); /* Nigeria Green #008751 */
+  --color-nigeria-green-light: oklch(0.65 0.22 145);
+  --color-gold: oklch(0.75 0.15 75); /* Nigerian Gold #FFD700 */
+  --color-gold-light: oklch(0.85 0.12 75);
+  --color-forest: oklch(0.40 0.20 145); /* Lighter forest green */
+  --color-forest-light: oklch(0.50 0.18 145);
+  --color-navy: oklch(0.20 0.03 280); /* Deep navy for contrast */
+  --color-white: oklch(1 0 0); /* Pure white */
+  --color-off-white: oklch(0.98 0.01 90); /* Slight cream */
+  
+  /* Typography */
+  --font-display: "Playfair Display", Georgia, serif;
+  --font-body: "DM Sans", system-ui, sans-serif;
+  --font-accent: "Space Grotesk", monospace;
+}
+
+:root {
+  /* WaZoBiaRide Nigeria Unity Theme - Light Mode */
+  --primary: oklch(0.55 0.25 145); /* Nigeria Green */
+  --primary-foreground: oklch(1 0 0); /* White */
+  --sidebar-primary: oklch(0.55 0.25 145);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --chart-1: oklch(0.55 0.25 145);
+  --chart-2: oklch(0.75 0.15 75);
+  --chart-3: oklch(0.40 0.20 145);
+  --chart-4: oklch(0.65 0.22 145);
+  --chart-5: oklch(0.20 0.03 280);
+  --radius: 0.75rem;
+  --background: oklch(1 0 0); /* Pure White */
+  --foreground: oklch(0.15 0.02 280); /* Dark Navy */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.20 0.03 280);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.20 0.03 280);
+  --secondary: oklch(0.75 0.15 75); /* Nigerian Gold */
+  --secondary-foreground: oklch(0.15 0.02 280);
+  --muted: oklch(0.98 0.01 90);
+  --muted-foreground: oklch(0.40 0.02 280);
+  --accent: oklch(0.40 0.20 145); /* Forest Green */
+  --accent-foreground: oklch(0.98 0.01 90);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.90 0.02 75);
+  --input: oklch(0.90 0.02 75);
+  --ring: oklch(0.55 0.25 145);
+  --sidebar: oklch(0.98 0.01 90);
+  --sidebar-foreground: oklch(0.15 0.02 280);
+  --sidebar-accent: oklch(0.95 0.02 75);
+  --sidebar-accent-foreground: oklch(0.15 0.02 280);
+  --sidebar-border: oklch(0.90 0.02 75);
+  --sidebar-ring: oklch(0.55 0.25 145);
+}
+
+.dark {
+  /* WaZoBiaRide Nigeria Unity Theme - Dark Mode */
+  --primary: oklch(0.65 0.22 145); /* Lighter Nigeria Green */
+  --primary-foreground: oklch(0.15 0.02 280);
+  --sidebar-primary: oklch(0.65 0.22 145);
+  --sidebar-primary-foreground: oklch(0.15 0.02 280);
+  --background: oklch(0.15 0.02 280); /* Deep Navy */
+  --foreground: oklch(0.95 0.01 90); /* Off-White */
+  --card: oklch(0.20 0.02 280);
+  --card-foreground: oklch(0.95 0.01 90);
+  --popover: oklch(0.20 0.02 280);
+  --popover-foreground: oklch(0.95 0.01 90);
+  --secondary: oklch(0.70 0.15 75);
+  --secondary-foreground: oklch(0.15 0.02 280);
+  --muted: oklch(0.25 0.02 280);
+  --muted-foreground: oklch(0.70 0.02 90);
+  --accent: oklch(0.50 0.18 145);
+  --accent-foreground: oklch(0.95 0.01 90);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.30 0.02 280);
+  --input: oklch(0.30 0.02 280);
+  --ring: oklch(0.65 0.22 145);
+  --chart-1: oklch(0.65 0.22 145);
+  --chart-2: oklch(0.70 0.15 75);
+  --chart-3: oklch(0.50 0.18 145);
+  --chart-4: oklch(0.55 0.25 145);
+  --chart-5: oklch(0.85 0.12 75);
+  --sidebar: oklch(0.18 0.02 280);
+  --sidebar-foreground: oklch(0.95 0.01 90);
+  --sidebar-accent: oklch(0.25 0.02 280);
+  --sidebar-accent-foreground: oklch(0.95 0.01 90);
+  --sidebar-border: oklch(0.30 0.02 280);
+  --sidebar-ring: oklch(0.65 0.22 145);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+@layer components {
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem;
+      padding-right: 2rem;
+      max-width: 1280px;
+    }
+  }
+  
+  /* WaZoBiaRide Custom Components */
+  .font-display {
+    font-family: var(--font-display);
+  }
+  
+  .font-body {
+    font-family: var(--font-body);
+  }
+  
+  .font-accent {
+    font-family: var(--font-accent);
+  }
+  
+  .text-nigeria-green {
+    color: var(--color-nigeria-green);
+  }
+  
+  .text-gold {
+    color: var(--color-gold);
+  }
+  
+  .text-forest {
+    color: var(--color-forest);
+  }
+  
+  .bg-nigeria-green {
+    background-color: var(--color-nigeria-green);
+  }
+  
+  .bg-gold {
+    background-color: var(--color-gold);
+  }
+  
+  .bg-navy {
+    background-color: var(--color-navy);
+  }
+  
+  .bg-white {
+    background-color: var(--color-white);
+  }
+  
+  .bg-cream {
+    background-color: var(--color-off-white);
+  }
+  
+  /* Diagonal Section Divider */
+  .diagonal-top {
+    clip-path: polygon(0 8%, 100% 0, 100% 100%, 0 100%);
+    margin-top: -4rem;
+    padding-top: 6rem;
+  }
+  
+  .diagonal-bottom {
+    clip-path: polygon(0 0, 100% 0, 100% 92%, 0 100%);
+  }
+  
+  /* Adire Pattern Background */
+  .adire-pattern {
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23008751' fill-opacity='0.08'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2v-4h4v-2h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+  
+  /* Gradient Overlays */
+  .gradient-nigeria-green {
+    background: linear-gradient(135deg, var(--color-nigeria-green) 0%, var(--color-nigeria-green-light) 100%);
+  }
+  
+  .gradient-gold {
+    background: linear-gradient(135deg, var(--color-gold) 0%, var(--color-gold-light) 100%);
+  }
+  
+  .gradient-hero {
+    background: linear-gradient(180deg, rgba(0, 135, 81, 0.7) 0%, rgba(0, 135, 81, 0.4) 50%, rgba(0, 135, 81, 0.8) 100%);
+  }
+}
+
+/* Custom Animations */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(0, 135, 81, 0.3); }
+  50% { box-shadow: 0 0 40px rgba(0, 135, 81, 0.6); }
+}
+
+@keyframes draw-line {
+  to { stroke-dashoffset: 0; }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-draw-line {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: draw-line 2s ease-out forwards;
+}
