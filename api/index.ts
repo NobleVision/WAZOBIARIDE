@@ -5,11 +5,23 @@
  * for WaZoBiaRide landing page.
  */
 
-import { IncomingMessage, ServerResponse } from 'http';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-export default function handler(req: IncomingMessage & { url?: string }, res: ServerResponse) {
+export default function handler(req: VercelRequest, res: VercelResponse) {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Handle OPTIONS preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  const url = req.url || '';
+
   // Health check endpoint
-  if (req.url === '/health' || req.url === '/api/health') {
+  if (url === '/api/health' || url.endsWith('/health')) {
     return res.status(200).json({
       status: 'healthy',
       service: 'WaZoBiaRide',
@@ -17,8 +29,8 @@ export default function handler(req: IncomingMessage & { url?: string }, res: Se
     });
   }
 
-  // API route for landing page data
-  if (req.url === '/api/stats' || req.url === '/stats') {
+  // API route for landing page stats
+  if (url === '/api/stats' || url.endsWith('/stats')) {
     return res.status(200).json({
       riders: 500000,
       drivers: 50000,
@@ -28,7 +40,7 @@ export default function handler(req: IncomingMessage & { url?: string }, res: Se
   }
 
   // Default response for unmatched routes
-  res.status(404).json({
+  return res.status(404).json({
     error: 'Not Found',
     message: 'The requested endpoint does not exist'
   });
