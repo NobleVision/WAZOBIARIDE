@@ -7,6 +7,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { VideoBackground } from "@/components/shared/VideoBackground";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -27,6 +28,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useLocation } from "wouter";
 
 // Animation variants
 const fadeInUp = {
@@ -90,6 +92,7 @@ function useCountUp(end: number, duration: number = 2000, startOnView: boolean =
 
 // Navigation Component
 function Navigation() {
+  const [, setLocation] = useLocation();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -145,6 +148,7 @@ function Navigation() {
               className={`font-body ${
                 isScrolled ? "text-foreground" : "text-white hover:bg-white/10"
               }`}
+              onClick={() => setLocation("/login")}
             >
               Sign In
             </Button>
@@ -186,7 +190,19 @@ function Navigation() {
                   {item}
                 </a>
               ))}
-              <Button className="bg-nigeria-green hover:bg-nigeria-green/90 text-white font-body w-full mt-2">
+              <Button
+                variant="ghost"
+                className={`font-body w-full ${
+                  isScrolled ? "text-foreground" : "text-white hover:bg-white/10"
+                }`}
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  setLocation("/login");
+                }}
+              >
+                Sign In
+              </Button>
+              <Button className="bg-nigeria-green hover:bg-nigeria-green/90 text-white font-body w-full">
                 Download App
               </Button>
             </div>
@@ -201,17 +217,13 @@ function Navigation() {
 function HeroSection() {
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-      {/* Background Image */}
-      <div
-        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: "url('/images/hero-lagos-ride.png')" }}
+      {/* Video Background */}
+      <VideoBackground
+        showGradient={true}
+        showAdirePattern={true}
+        overlayOpacity={0.7}
+        fallbackImage="/images/hero-lagos-ride.png"
       />
-      
-      {/* Gradient Overlay */}
-      <div className="absolute inset-0 gradient-hero" />
-      
-      {/* Adire Pattern Overlay */}
-      <div className="absolute inset-0 adire-pattern opacity-30" />
 
       {/* Content */}
       <div className="relative z-10 container mx-auto px-4 pt-24">

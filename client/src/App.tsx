@@ -5,14 +5,31 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
-
+import { AuthProvider } from "./auth/AuthContext";
+import { Login } from "./pages/Login";
+import { RiderDashboard } from "./pages/rider/RiderDashboard";
+import { DriverDashboard } from "./pages/driver/DriverDashboard";
+import { AdminDashboard } from "./pages/admin/AdminDashboard";
+import { useAuth } from "./auth/AuthContext";
 
 function Router() {
+  const { user } = useAuth();
+
   return (
     <Switch>
       <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
+      <Route path={"/login"} component={Login} />
+      
+      {/* Protected Routes - Require Authentication */}
+      {user && (
+        <>
+          <Route path={"/rider"} component={RiderDashboard} />
+          <Route path={"/driver"} component={DriverDashboard} />
+          <Route path={"/admin"} component={AdminDashboard} />
+        </>
+      )}
+      
+      {/* 404 - Final fallback route */}
       <Route component={NotFound} />
     </Switch>
   );
@@ -26,15 +43,17 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
-      </ThemeProvider>
+      <AuthProvider>
+        <ThemeProvider
+          defaultTheme="light"
+          // switchable
+        >
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </ThemeProvider>
+      </AuthProvider>
     </ErrorBoundary>
   );
 }
