@@ -8,6 +8,8 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { VideoBackground } from "@/components/shared/VideoBackground";
+import MediaControls from "@/components/shared/MediaControls";
+import { useBackgroundAudio } from "@/components/shared/useBackgroundAudio";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -90,8 +92,15 @@ function useCountUp(end: number, duration: number = 2000, startOnView: boolean =
   return { count, ref };
 }
 
+// Navigation Component Props
+interface NavigationProps {
+  isPlaying: boolean;
+  onTogglePlay: () => void;
+  onSkipTrack: () => void;
+}
+
 // Navigation Component
-function Navigation() {
+function Navigation({ isPlaying, onTogglePlay, onSkipTrack }: NavigationProps) {
   const [, setLocation] = useLocation();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -155,6 +164,13 @@ function Navigation() {
             <Button className="bg-nigeria-green hover:bg-nigeria-green/90 text-white font-body">
               Download App
             </Button>
+            
+            {/* Media Controls */}
+            <MediaControls
+              isPlaying={isPlaying}
+              onTogglePlay={onTogglePlay}
+              onSkipTrack={onSkipTrack}
+            />
           </div>
 
           {/* Mobile Menu Button */}
@@ -205,6 +221,16 @@ function Navigation() {
               <Button className="bg-nigeria-green hover:bg-nigeria-green/90 text-white font-body w-full">
                 Download App
               </Button>
+
+              {/* Mobile Media Controls */}
+              <div className="flex justify-center pt-2">
+                <MediaControls
+                  isPlaying={isPlaying}
+                  onTogglePlay={onTogglePlay}
+                  onSkipTrack={onSkipTrack}
+                  compact={true}
+                />
+              </div>
             </div>
           </motion.div>
         )}
@@ -1145,9 +1171,19 @@ function Footer() {
 
 // Main Home Component
 export default function Home() {
+  // Initialize background audio
+  const { isPlaying, togglePlay, skipToNextTrack } = useBackgroundAudio({
+    enabled: true,
+    volume: 0.1,
+  });
+
   return (
     <div className="min-h-screen">
-      <Navigation />
+      <Navigation
+        isPlaying={isPlaying}
+        onTogglePlay={togglePlay}
+        onSkipTrack={skipToNextTrack}
+      />
       <HeroSection />
       <StatsSection />
       <ServicesSection />

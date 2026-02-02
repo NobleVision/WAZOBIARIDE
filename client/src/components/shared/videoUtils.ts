@@ -6,6 +6,61 @@
 export type TransitionEffect = 'fade' | 'crossfade' | 'zoom' | 'slide';
 
 /**
+ * Audio files in client/public/audio/
+ */
+export const AUDIO_FILES: string[] = [
+  '6am Ride.mp3',
+  'The Plan.mp3',
+  'WaZoBiaRide Ride.mp3',
+];
+
+/**
+ * Shuffle array utility for random audio selection
+ */
+export function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+/**
+ * Select a random audio file
+ * @param excludeAudios - Audio files to exclude from selection
+ * @returns Random audio filename
+ */
+export function selectRandomAudio(excludeAudios: string[] = []): string {
+  const availableAudios = AUDIO_FILES.filter(audio => !excludeAudios.includes(audio));
+  if (availableAudios.length === 0) {
+    return AUDIO_FILES[0];
+  }
+  const randomIndex = Math.floor(Math.random() * availableAudios.length);
+  return availableAudios[randomIndex];
+}
+
+/**
+ * Get full audio URL
+ * @param filename - Audio filename
+ * @returns Full URL to the audio file
+ */
+export function getAudioUrl(filename: string): string {
+  return `/audio/${encodeURIComponent(filename)}`;
+}
+
+/**
+ * Format track name for display
+ * @param filename - Audio filename
+ * @returns Formatted track name
+ */
+export function formatTrackName(filename: string): string {
+  // Remove file extension
+  let name = filename.replace(/\.mp3$/i, '');
+  return name.trim();
+}
+
+/**
  * List of available video files in the public/videos folder
  * This is a static list for performance and to avoid build-time issues
  * Update this list when new videos are added

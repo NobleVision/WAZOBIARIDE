@@ -1,6 +1,6 @@
 /**
  * VideoBackground Component
- * Displays random b-roll videos with smooth transitions
+ * Displays random b-roll videos with smooth transitions and background audio
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,13 +16,13 @@ import { cn } from '@/lib/utils';
 
 interface VideoBackgroundProps {
   /**
-   * Opacity of the gradient overlay (0-1)
+   * Opacity of gradient overlay (0-1)
    * @default 0.7
    */
   overlayOpacity?: number;
   
   /**
-   * Whether to show the adire pattern overlay
+   * Whether to show adire pattern overlay
    * @default true
    */
   showAdirePattern?: boolean;
@@ -50,7 +50,7 @@ interface VideoBackgroundProps {
   fallbackImage?: string;
   
   /**
-   * Whether the video background is enabled
+   * Whether to video background is enabled
    * @default true
    */
   enabled?: boolean;
@@ -194,6 +194,13 @@ export function VideoBackground({
       {showAdirePattern && (
         <div className="absolute inset-0 adire-pattern opacity-30" />
       )}
+      
+      {/* Audio Element */}
+      <audio
+        src="/audio/6am Ride.mp3"
+        preload="auto"
+        loop
+      />
     </div>
   );
 }
