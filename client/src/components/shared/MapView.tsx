@@ -1,19 +1,48 @@
 /**
  * WaZoBiaRide - Map View Component (Mapbox GL JS)
- * 
+ *
  * Real interactive map showing drivers and ride locations
  * Uses Mapbox GL JS for professional-grade Nigeria mapping
  * Maintains 100% API compatibility with previous SVG implementation
+ *
+ * Refactored for:
+ * - Smooth animations without degradation
+ * - Proper cleanup and memory leak prevention
+ * - Graceful handling of blocked telemetry
+ * - Efficient marker diffing and updates
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { MapPin, Navigation, Car, Navigation as NavIcon } from 'lucide-react';
+import { Car } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import { cn } from '@/lib/utils';
 
 // Initialize Mapbox with token
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || '';
+
+// Disable Mapbox telemetry to prevent ERR_BLOCKED_BY_CLIENT errors from ad blockers
+// This must be done before any map is created
+// Reference: https://github.com/mapbox/mapbox-gl-js/issues/10365
+// Intercept fetch requests to events.mapbox.com to prevent ERR_BLOCKED_BY_CLIENT errors
+if (typeof window !== 'undefined') {
+  try {
+    const originalFetch = window.fetch;
+    window.fetch = function(input: RequestInfo | URL, init?: RequestInit) {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url && url.includes('events.mapbox.com')) {
+        // Return a resolved promise with an empty response to silently block telemetry
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return originalFetch.call(this, input, init);
+    };
+  } catch {
+    // Silently ignore if we can't intercept fetch
+  }
+}
+
+// Note: The SES "Removing unpermitted intrinsics" warning is from browser
+// extensions (like MetaMask) and is harmless - cannot be suppressed from app code.
 
 export interface MapMarker {
   id: string;
@@ -36,6 +65,8 @@ interface MapViewProps {
 // Default center: South West Nigeria (Lagos region)
 const DEFAULT_CENTER: [number, number] = [3.3792, 6.5244]; // [lng, lat]
 const DEFAULT_ZOOM = 10;
+const ROUTE_SOURCE_ID = 'route-source';
+const ROUTE_LAYER_ID = 'route-layer';
 
 // Color constants matching WaZoBiaRide brand
 const MARKER_COLORS = {
@@ -46,6 +77,59 @@ const MARKER_COLORS = {
   pickup: '#22c55e', // green-500
   dropoff: '#ef4444', // red-500
   current: '#3b82f6', // blue-500
+} as const;
+
+// CSS for pulse animation - injected once globally
+const PULSE_ANIMATION_ID = 'mapview-pulse-animation';
+const injectPulseAnimation = () => {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById(PULSE_ANIMATION_ID)) return;
+
+  const style = document.createElement('style');
+  style.id = PULSE_ANIMATION_ID;
+  style.textContent = `
+    @keyframes mapview-pulse {
+      0% { transform: scale(1); opacity: 0.6; }
+      100% { transform: scale(2); opacity: 0; }
+    }
+    .mapview-marker-pulse {
+      animation: mapview-pulse 1.5s ease-out infinite;
+    }
+  `;
+  document.head.appendChild(style);
+};
+
+// Marker element data stored alongside DOM element
+interface MarkerData {
+  mapboxMarker: mapboxgl.Marker;
+  element: HTMLElement;
+  markerId: string;
+  isSelected: boolean;
+  isHovered: boolean;
+  cleanup: () => void;
+}
+
+// Get marker color based on type and tier
+const getMarkerColor = (marker: MapMarker): string => {
+  if (marker.type === 'driver') {
+    return marker.tier === 'premium' ? MARKER_COLORS.driver.premium : MARKER_COLORS.driver.standard;
+  }
+  return MARKER_COLORS[marker.type];
+};
+
+// Get SVG icon path for marker type
+const getMarkerIconSVG = (type: MapMarker['type']): string => {
+  switch (type) {
+    case 'driver':
+      return '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" /><circle cx="7" cy="17" r="2" /><circle cx="17" cy="17" r="2" />';
+    case 'pickup':
+    case 'dropoff':
+      return '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" />';
+    case 'current':
+      return '<polygon points="3 11 22 2 13 21 11 13 3 11" />';
+    default:
+      return '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" />';
+  }
 };
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -56,32 +140,58 @@ export const MapView: React.FC<MapViewProps> = ({
   selectedMarkerId,
   className
 }) => {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const markersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
-  const routeSourceId = useRef<string>('route-source');
-  const routeLayerId = useRef<string>('route-layer');
-  const [hoveredMarker, setHoveredMarker] = useState<string | null>(null);
+  // Refs for map instance and containers
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const markersDataRef = useRef<Map<string, MarkerData>>(new Map());
+  const isUnmountedRef = useRef(false);
+  const flyToTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Stable refs for callbacks to avoid stale closures
+  const onMarkerClickRef = useRef(onMarkerClick);
+  onMarkerClickRef.current = onMarkerClick;
+
+  // State
+  const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
 
-  // Custom marker element creator
-  const createMarkerElement = useCallback((marker: MapMarker, isSelected: boolean, isHovered: boolean): HTMLElement => {
-    const el = document.createElement('div');
-    
-    const color = marker.type === 'driver' 
-      ? (marker.tier === 'premium' ? MARKER_COLORS.driver.premium : MARKER_COLORS.driver.standard)
-      : MARKER_COLORS[marker.type];
+  // Inject pulse animation CSS once globally
+  useEffect(() => {
+    injectPulseAnimation();
+  }, []);
 
-    const scale = isSelected || isHovered ? 1.2 : 1;
-    
-    el.style.cssText = `
-      transform: translate(-50%, -50%) scale(${scale});
-      transition: transform 0.2s ease;
+  // Create a marker DOM element with proper structure
+  const createMarkerElement = useCallback((marker: MapMarker): HTMLElement => {
+    const color = getMarkerColor(marker);
+    const iconSize = marker.type === 'driver' ? 20 : 16;
+
+    const container = document.createElement('div');
+    container.className = 'mapview-marker-container';
+    container.dataset.markerId = marker.id;
+    container.style.cssText = `
+      position: relative;
       cursor: pointer;
+      transition: transform 0.2s ease-out;
+      will-change: transform;
     `;
 
+    // Pulse ring element (hidden by default, shown on hover/select)
+    const pulseRing = document.createElement('div');
+    pulseRing.className = 'mapview-marker-pulse-ring';
+    pulseRing.style.cssText = `
+      position: absolute;
+      inset: -8px;
+      border: 2px solid ${color};
+      border-radius: 50%;
+      opacity: 0;
+      pointer-events: none;
+    `;
+    container.appendChild(pulseRing);
+
+    // Main icon wrapper
     const iconWrapper = document.createElement('div');
-    iconWrapper.className = 'marker-icon-wrapper';
+    iconWrapper.className = 'mapview-marker-icon';
     iconWrapper.style.cssText = `
       position: relative;
       width: 44px;
@@ -93,61 +203,28 @@ export const MapView: React.FC<MapViewProps> = ({
       align-items: center;
       justify-content: center;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      transition: all 0.2s ease;
+      transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
     `;
 
-    // Add pulse effect for selected/hovered markers
-    if (isSelected || isHovered) {
-      const pulse = document.createElement('div');
-      pulse.style.cssText = `
-        position: absolute;
-        inset: -8px;
-        border: 2px solid ${color};
-        border-radius: 50%;
-        animation: pulse 1.5s ease-out infinite;
-      `;
-      el.appendChild(pulse);
-    }
-
-    // Determine which icon to show
-    let IconComponent;
-    switch (marker.type) {
-      case 'driver':
-        IconComponent = Car;
-        break;
-      case 'pickup':
-      case 'dropoff':
-        IconComponent = MapPin;
-        break;
-      case 'current':
-        IconComponent = NavIcon;
-        break;
-      default:
-        IconComponent = MapPin;
-    }
-
-    // Create icon using SVG (simplified from Lucide icons)
-    const iconSize = marker.type === 'driver' ? 20 : 16;
+    // SVG icon
     iconWrapper.innerHTML = `
       <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        ${marker.type === 'driver' ? '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" /><circle cx="7" cy="17" r="2" /><circle cx="17" cy="17" r="2" />' : 
-          marker.type === 'pickup' || marker.type === 'dropoff' ? '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" />' :
-          '<polygon points="3 11 22 2 13 21 11 13 3 11" />'}
+        ${getMarkerIconSVG(marker.type)}
       </svg>
     `;
+    container.appendChild(iconWrapper);
 
-    el.appendChild(iconWrapper);
-
-    // Add premium badge for premium drivers
+    // Premium badge for premium drivers
     if (marker.type === 'driver' && marker.tier === 'premium') {
       const badge = document.createElement('div');
+      badge.className = 'mapview-marker-badge';
       badge.style.cssText = `
         position: absolute;
         top: -4px;
         right: -4px;
         width: 20px;
         height: 20px;
-        background: #FFD700;
+        background: ${MARKER_COLORS.driver.premium};
         border-radius: 50%;
         display: flex;
         align-items: center;
@@ -156,190 +233,373 @@ export const MapView: React.FC<MapViewProps> = ({
         font-weight: bold;
         color: #1e293b;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        z-index: 1;
       `;
       badge.textContent = 'P';
-      el.appendChild(badge);
+      container.appendChild(badge);
     }
 
-    return el;
+    return container;
   }, []);
 
-  // Update markers on map
-  useEffect(() => {
-    if (!map.current || !mapLoaded) return;
+  // Update marker visual state (hover/selected) without recreating elements
+  const updateMarkerVisualState = useCallback((
+    element: HTMLElement,
+    isSelected: boolean,
+    isHovered: boolean,
+    color: string
+  ) => {
+    const pulseRing = element.querySelector('.mapview-marker-pulse-ring') as HTMLElement;
+    const iconWrapper = element.querySelector('.mapview-marker-icon') as HTMLElement;
 
-    const currentMarkers = markersRef.current;
-    const markerIds = new Set(markers.map(m => m.id));
+    if (!pulseRing || !iconWrapper) return;
+
+    const isActive = isSelected || isHovered;
+
+    // Update container scale
+    element.style.transform = isActive ? 'scale(1.15)' : 'scale(1)';
+
+    // Update pulse ring visibility and animation
+    if (isActive) {
+      pulseRing.style.opacity = '1';
+      pulseRing.classList.add('mapview-marker-pulse');
+    } else {
+      pulseRing.style.opacity = '0';
+      pulseRing.classList.remove('mapview-marker-pulse');
+    }
+
+    // Update icon wrapper shadow
+    iconWrapper.style.boxShadow = isActive
+      ? `0 6px 20px rgba(0, 0, 0, 0.25), 0 0 0 2px ${color}40`
+      : '0 4px 12px rgba(0, 0, 0, 0.15)';
+  }, []);
+
+  // Sync markers with map - handles add/remove/update efficiently
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded) return;
+    if (isUnmountedRef.current) return;
+
+    const currentMarkersData = markersDataRef.current;
+    const newMarkerIds = new Set(markers.map(m => m.id));
+    const mapInstance = mapRef.current;
 
     // Remove markers that no longer exist
-    currentMarkers.forEach((marker, id) => {
-      if (!markerIds.has(id)) {
-        marker.remove();
-        currentMarkers.delete(id);
+    currentMarkersData.forEach((data, id) => {
+      if (!newMarkerIds.has(id)) {
+        data.cleanup();
+        data.mapboxMarker.remove();
+        currentMarkersData.delete(id);
       }
     });
 
-    // Add or update markers
+    // Add new markers or update existing ones
     markers.forEach(marker => {
+      const existingData = currentMarkersData.get(marker.id);
       const isSelected = selectedMarkerId === marker.id;
-      const isHovered = hoveredMarker === marker.id;
+      const isHovered = hoveredMarkerId === marker.id;
+      const color = getMarkerColor(marker);
 
-      if (currentMarkers.has(marker.id)) {
-        // Update existing marker
-        const existingMarker = currentMarkers.get(marker.id)!;
-        existingMarker.setLngLat([marker.lng, marker.lat]);
-        
-        // Re-create element to update appearance
-        const newElement = createMarkerElement(marker, isSelected, isHovered);
-        existingMarker.getElement().replaceWith(newElement);
+      if (existingData) {
+        // Update existing marker position (smooth if coordinates changed)
+        existingData.mapboxMarker.setLngLat([marker.lng, marker.lat]);
+
+        // Update visual state only if it changed (avoids animation restart)
+        if (existingData.isSelected !== isSelected || existingData.isHovered !== isHovered) {
+          updateMarkerVisualState(existingData.element, isSelected, isHovered, color);
+          existingData.isSelected = isSelected;
+          existingData.isHovered = isHovered;
+        }
       } else {
         // Create new marker
-        const element = createMarkerElement(marker, isSelected, isHovered);
+        const element = createMarkerElement(marker);
+
+        // Create event handlers with cleanup tracking
+        const handleClick = (e: Event) => {
+          e.stopPropagation();
+          onMarkerClickRef.current?.(marker);
+        };
+
+        const handleMouseEnter = () => {
+          if (!isUnmountedRef.current) {
+            setHoveredMarkerId(marker.id);
+          }
+        };
+
+        const handleMouseLeave = () => {
+          if (!isUnmountedRef.current) {
+            setHoveredMarkerId(null);
+          }
+        };
+
+        // Attach event listeners
+        element.addEventListener('click', handleClick);
+        element.addEventListener('mouseenter', handleMouseEnter);
+        element.addEventListener('mouseleave', handleMouseLeave);
+
+        // Cleanup function to remove listeners
+        const cleanup = () => {
+          element.removeEventListener('click', handleClick);
+          element.removeEventListener('mouseenter', handleMouseEnter);
+          element.removeEventListener('mouseleave', handleMouseLeave);
+        };
+
+        // Create Mapbox marker
         const mapboxMarker = new mapboxgl.Marker({
           element,
           anchor: 'center'
         })
           .setLngLat([marker.lng, marker.lat])
-          .addTo(map.current!);
+          .addTo(mapInstance);
 
-        // Add click handler
-        element.addEventListener('click', () => {
-          onMarkerClick?.(marker);
+        // Store marker data
+        currentMarkersData.set(marker.id, {
+          mapboxMarker,
+          element,
+          markerId: marker.id,
+          isSelected,
+          isHovered,
+          cleanup
         });
 
-        // Add hover handlers
-        element.addEventListener('mouseenter', () => {
-          setHoveredMarker(marker.id);
-        });
-
-        element.addEventListener('mouseleave', () => {
-          setHoveredMarker(null);
-        });
-
-        currentMarkers.set(marker.id, mapboxMarker);
+        // Apply initial visual state
+        updateMarkerVisualState(element, isSelected, isHovered, color);
       }
     });
-  }, [markers, selectedMarkerId, hoveredMarker, onMarkerClick, createMarkerElement, mapLoaded]);
+  }, [markers, selectedMarkerId, hoveredMarkerId, createMarkerElement, updateMarkerVisualState, mapLoaded]);
 
-  // Draw route if showRoute is true
+  // Draw route between markers when showRoute is true
   useEffect(() => {
-    if (!map.current || !mapLoaded) return;
+    if (!mapRef.current || !mapLoaded) return;
+    if (isUnmountedRef.current) return;
 
-    const mapInstance = map.current;
+    const mapInstance = mapRef.current;
 
-    // Remove existing route layer if it exists
-    if (mapInstance.getLayer(routeLayerId.current)) {
-      mapInstance.removeLayer(routeLayerId.current);
-      mapInstance.removeSource(routeSourceId.current);
+    // Safely remove existing route layer and source
+    try {
+      if (mapInstance.getLayer(ROUTE_LAYER_ID)) {
+        mapInstance.removeLayer(ROUTE_LAYER_ID);
+      }
+      if (mapInstance.getSource(ROUTE_SOURCE_ID)) {
+        mapInstance.removeSource(ROUTE_SOURCE_ID);
+      }
+    } catch (e) {
+      // Layer/source might not exist, ignore
     }
 
+    // Add new route if needed
     if (showRoute && markers.length >= 2) {
       const coordinates = markers.map(m => [m.lng, m.lat]);
 
-      mapInstance.addSource(routeSourceId.current, {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'LineString',
-            coordinates,
+      try {
+        mapInstance.addSource(ROUTE_SOURCE_ID, {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'LineString',
+              coordinates,
+            },
           },
-        },
-      });
+        });
 
-      mapInstance.addLayer({
-        id: routeLayerId.current,
-        type: 'line',
-        source: routeSourceId.current,
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round',
-        },
-        paint: {
-          'line-color': '#008751',
-          'line-width': 3,
-          'line-dasharray': [2, 1],
-        },
-      });
+        mapInstance.addLayer({
+          id: ROUTE_LAYER_ID,
+          type: 'line',
+          source: ROUTE_SOURCE_ID,
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': MARKER_COLORS.driver.standard,
+            'line-width': 3,
+            'line-dasharray': [2, 1],
+          },
+        });
+      } catch (e) {
+        console.warn('MapView: Failed to add route layer:', e);
+      }
     }
   }, [showRoute, markers, mapLoaded]);
 
-  // Update center and zoom
-  useEffect(() => {
-    if (!map.current || !mapLoaded) return;
+  // Stable reference to markers for bounds calculation
+  const markersForBounds = useMemo(() => {
+    return markers.map(m => ({ lng: m.lng, lat: m.lat }));
+  }, [markers]);
 
-    if (center) {
-      map.current.flyTo({
-        center: [center.lng, center.lat],
-        zoom: DEFAULT_ZOOM,
-        duration: 1000,
-      });
-    } else if (markers.length > 0) {
-      // Fit map to show all markers
-      const bounds = new mapboxgl.LngLatBounds();
-      markers.forEach(marker => {
-        bounds.extend([marker.lng, marker.lat]);
-      });
-      map.current.fitBounds(bounds, {
-        padding: 50,
-        maxZoom: 14,
-      });
-    } else {
-      // Default to Lagos center
-      map.current.flyTo({
-        center: DEFAULT_CENTER,
-        zoom: DEFAULT_ZOOM,
-        duration: 1000,
-      });
+  // Update map center/bounds with debounced flyTo to prevent animation conflicts
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded) return;
+    if (isUnmountedRef.current) return;
+
+    const mapInstance = mapRef.current;
+
+    // Clear any pending flyTo animation
+    if (flyToTimeoutRef.current) {
+      clearTimeout(flyToTimeoutRef.current);
     }
-  }, [center, markers, mapLoaded]);
 
-  // Initialize map
-  useEffect(() => {
-    if (!mapContainer.current || map.current) return;
+    // Debounce map movements to prevent animation stacking
+    flyToTimeoutRef.current = setTimeout(() => {
+      if (isUnmountedRef.current || !mapRef.current) return;
 
-    const mapInstance = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/streets-v12', // Professional map style
-      center: center ? [center.lng, center.lat] : DEFAULT_CENTER,
-      zoom: DEFAULT_ZOOM,
-      pitch: 45, // 3D perspective for better visualization
-      bearing: 0,
-      antialias: true,
-    });
-
-    // Add navigation controls
-    mapInstance.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
-
-    // Add scale control
-    mapInstance.addControl(new mapboxgl.ScaleControl(), 'bottom-left');
-
-    mapInstance.on('load', () => {
-      setMapLoaded(true);
-    });
-
-    map.current = mapInstance;
+      try {
+        if (center) {
+          mapInstance.flyTo({
+            center: [center.lng, center.lat],
+            zoom: DEFAULT_ZOOM,
+            duration: 800,
+            essential: true, // Ensures animation completes
+          });
+        } else if (markersForBounds.length > 0) {
+          const bounds = new mapboxgl.LngLatBounds();
+          markersForBounds.forEach(pos => {
+            bounds.extend([pos.lng, pos.lat]);
+          });
+          mapInstance.fitBounds(bounds, {
+            padding: 50,
+            maxZoom: 14,
+            duration: 800,
+          });
+        } else {
+          mapInstance.flyTo({
+            center: DEFAULT_CENTER,
+            zoom: DEFAULT_ZOOM,
+            duration: 800,
+            essential: true,
+          });
+        }
+      } catch (e) {
+        console.warn('MapView: Map animation error:', e);
+      }
+    }, 100); // Small debounce to batch rapid prop changes
 
     return () => {
-      // Cleanup
-      markersRef.current.forEach(marker => marker.remove());
-      markersRef.current.clear();
-      map.current?.remove();
-      map.current = null;
+      if (flyToTimeoutRef.current) {
+        clearTimeout(flyToTimeoutRef.current);
+      }
     };
-  }, []); // Run only once on mount
+  }, [center, markersForBounds, mapLoaded]);
 
-  // Driver count
-  const driverCount = markers.filter(m => m.type === 'driver').length;
+  // Initialize Mapbox map instance
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+    if (mapRef.current) return; // Already initialized
+
+    isUnmountedRef.current = false;
+
+    // Check for valid access token
+    if (!mapboxgl.accessToken) {
+      setMapError('Mapbox access token is missing. Please set VITE_MAPBOX_ACCESS_TOKEN.');
+      return;
+    }
+
+    try {
+      const mapInstance = new mapboxgl.Map({
+        container: mapContainerRef.current,
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center: center ? [center.lng, center.lat] : DEFAULT_CENTER,
+        zoom: DEFAULT_ZOOM,
+        pitch: 45,
+        bearing: 0,
+        antialias: true,
+        trackResize: true,
+        // Disable telemetry to prevent ad-blocker errors
+        collectResourceTiming: false,
+      });
+
+      // Add controls
+      mapInstance.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+      mapInstance.addControl(new mapboxgl.ScaleControl(), 'bottom-left');
+
+      // Handle map load
+      mapInstance.on('load', () => {
+        if (!isUnmountedRef.current) {
+          setMapLoaded(true);
+        }
+      });
+
+      // Handle map errors gracefully
+      mapInstance.on('error', (e) => {
+        // Ignore telemetry/analytics errors (caused by ad blockers)
+        // These are non-critical and don't affect map functionality
+        const errorMessage = e.error?.message || String(e.error) || '';
+        const errorString = String(e.error);
+
+        if (
+          errorMessage.includes('events.mapbox.com') ||
+          errorString.includes('events.mapbox.com') ||
+          errorMessage.includes('ERR_BLOCKED') ||
+          errorMessage.includes('Failed to fetch')
+        ) {
+          // Silently ignore telemetry errors
+          return;
+        }
+
+        console.warn('MapView: Map error:', e.error);
+      });
+
+      mapRef.current = mapInstance;
+    } catch (e) {
+      console.error('MapView: Failed to initialize map:', e);
+      setMapError('Failed to initialize map. Please check your Mapbox configuration.');
+    }
+
+    // Cleanup on unmount
+    return () => {
+      isUnmountedRef.current = true;
+
+      // Clear any pending timeouts
+      if (flyToTimeoutRef.current) {
+        clearTimeout(flyToTimeoutRef.current);
+        flyToTimeoutRef.current = null;
+      }
+
+      // Clean up all markers
+      markersDataRef.current.forEach(data => {
+        data.cleanup();
+        data.mapboxMarker.remove();
+      });
+      markersDataRef.current.clear();
+
+      // Remove map instance
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, []); // Empty deps - run once on mount
+
+  // Memoize driver count to avoid recalculating on every render
+  const driverCount = useMemo(
+    () => markers.filter(m => m.type === 'driver').length,
+    [markers]
+  );
+
+  // Get hovered marker label
+  const hoveredMarkerLabel = useMemo(() => {
+    if (!hoveredMarkerId) return null;
+    return markers.find(m => m.id === hoveredMarkerId)?.label || null;
+  }, [hoveredMarkerId, markers]);
 
   return (
     <div className={cn('relative w-full h-full bg-slate-100 rounded-2xl overflow-hidden', className)}>
       {/* Map container */}
-      <div ref={mapContainer} className="w-full h-full" />
+      <div ref={mapContainerRef} className="w-full h-full" />
+
+      {/* Error state */}
+      {mapError && (
+        <div className="absolute inset-0 bg-slate-100 flex items-center justify-center">
+          <div className="text-center p-6">
+            <div className="text-red-500 text-lg font-semibold mb-2">Map Error</div>
+            <div className="text-gray-600 text-sm">{mapError}</div>
+          </div>
+        </div>
+      )}
 
       {/* Driver count badge */}
-      {driverCount > 0 && (
+      {driverCount > 0 && !mapError && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -348,25 +608,27 @@ export const MapView: React.FC<MapViewProps> = ({
           <div className="flex items-center gap-2">
             <Car className="w-4 h-4 text-primary" />
             <span className="font-semibold text-sm">
-              {driverCount} Drivers Nearby
+              {driverCount} Driver{driverCount !== 1 ? 's' : ''} Nearby
             </span>
           </div>
         </motion.div>
       )}
 
-      {/* Hovered/Selected marker label */}
-      {hoveredMarker && (
+      {/* Hovered marker label tooltip */}
+      {hoveredMarkerLabel && (
         <motion.div
+          key={hoveredMarkerId} // Key ensures animation replays for different markers
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs px-3 py-1 rounded-full shadow-lg z-10"
+          exit={{ opacity: 0 }}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs px-3 py-1.5 rounded-full shadow-lg z-10 max-w-[200px] truncate"
         >
-          {markers.find(m => m.id === hoveredMarker)?.label}
+          {hoveredMarkerLabel}
         </motion.div>
       )}
 
       {/* Map loading state */}
-      {!mapLoaded && (
+      {!mapLoaded && !mapError && (
         <div className="absolute inset-0 bg-slate-100 flex items-center justify-center">
           <motion.div
             animate={{ rotate: 360 }}
@@ -380,20 +642,6 @@ export const MapView: React.FC<MapViewProps> = ({
       <div className="absolute bottom-4 left-4 text-xs text-gray-600 font-medium z-10 bg-white/80 px-2 py-1 rounded">
         WaZoBiaRide • Mapbox
       </div>
-
-      {/* Custom CSS for pulse animation */}
-      <style>{`
-        @keyframes pulse {
-          0% {
-            transform: scale(1);
-            opacity: 0.5;
-          }
-          100% {
-            transform: scale(2);
-            opacity: 0;
-          }
-        }
-      `}</style>
     </div>
   );
 };
